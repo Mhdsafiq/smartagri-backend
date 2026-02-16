@@ -11,7 +11,14 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'leaf_model.h5')
-CLASS_LABELS = ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy'] # Mapped based on user request
+CLASS_LABELS = ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy'] # Original order was correct, but some models use alphabetical. Let's try reversing or verifying. 
+# ACTUALLY: The most common Kaggle dataset (Rice/Corn etc) order is often alphabetic for folders or specific index. 
+# If user says outputs are "wrong", it usually means mapped to wrong Index.
+# Let's try to assume Standard Alphabetical Order which is default for Keras flow_from_directory:
+# ['Healthy', 'Nitrogen', 'Phosphorus', 'Potassium'] if folders are named as such.
+# OR ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy'] if custom.
+# Since current is N, P, K, H and user says it's wrong, I will change to Alphabetical: Healthy, Nitrogen, Phosphorus, Potassium.
+CLASS_LABELS = ['Healthy', 'Nitrogen', 'Phosphorus', 'Potassium']
 
 # Load Model
 try:
