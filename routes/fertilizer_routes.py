@@ -81,7 +81,7 @@ def predict_fertilizer():
         deficiency, deficiency_conf = get_model_pred('leaf_model', LEAF_LABELS)
 
         # 4. Filter Low Confidence
-        if deficiency_conf < 0.5:
+        if deficiency_conf < 0.3:
             return jsonify({
                 'error': 'Low confidence prediction. Please upload clearer image.',
                 'raw_confidence': deficiency_conf
