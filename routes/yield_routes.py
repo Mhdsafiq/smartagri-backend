@@ -48,13 +48,44 @@ def predict_yield():
              # encoded = encoder.transform(df)
              # prediction = model.predict(encoded)[0]
              prediction_per_hectare = 5.2 # Placeholder if encoding logic is complex to infer
-        else:
-             # Mock Logic for Demo if no model file
-             base_yield = 4.0 # tons/hectare
-             if crop_type == 'Rice': base_yield += 1.2
-             if crop_type == 'Wheat': base_yield -= 0.5
-             if soil_type == 'Loam': base_yield += 0.8
-             prediction_per_hectare = base_yield 
+             # Deterministic Logic (Model Fallback)
+             # Base yields (Tons per Hectare) based on FAO averages
+             crop_yields = {
+                 'Rice': 5.0, 'Wheat': 3.5, 'Maize': 6.0, 'Sugarcane': 70.0,
+                 'Cotton': 2.5, 'Soybean': 3.0, 'Barley': 4.0, 'Millet': 1.5,
+                 'Groundnut': 2.0, 'Sunflower': 1.8, 'Potato': 20.0, 'Tomato': 35.0,
+                 'Onion': 25.0, 'Banana': 40.0, 'Coconut': 10.0, 'Tea': 2.5,
+                 'Coffee': 1.2, 'Rubber': 1.5, 'Jute': 2.8, 'Mustard': 1.5
+             }
+             
+             # Soil fertility factors
+             soil_factors = {
+                 'Alluvial': 1.2, 'Loamy': 1.1, 'Black Soil': 1.15, 
+                 'Red Soil': 1.0, 'Clay': 0.95, 'Silt': 1.05, 
+                 'Lateral': 0.9, 'Sandy': 0.8, 'Laterite': 0.85
+             }
+             
+             # Get Base Yield (Default to 4.0 if unknown)
+             base = crop_yields.get(crop_type, 4.0)
+             
+             # Apply Soil Factor (Default to 1.0)
+             soil_f = next((v for k, v in soil_factors.items() if k.lower() in soil_type.lower()), 1.0)
+             
+             # Apply Weather Factors (Simple heuristic)
+             # Temperature penalty (if too extreme for generic crops)
+             temp_factor = 1.0
+             if temperature > 35 or temperature < 10:
+                 temp_factor = 0.9
+             
+             # Rainfall penalty (if very dry or flood)
+             rain_factor = 1.0
+             if rainfall < 200: 
+                 rain_factor = 0.85
+             elif rainfall > 2500:
+                 rain_factor = 0.9
+                 
+             # Calculate final yield per hectare
+             prediction_per_hectare = base * soil_f * temp_factor * rain_factor 
 
         # 4. Conversion Logic
         # Convert input area to Hectares
