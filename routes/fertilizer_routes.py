@@ -80,13 +80,24 @@ def predict_fertilizer():
         required_qty = rec['base_dose'] * area_hectares
         
         # 6. Response Construction
+        if deficiency == 'Healthy':
+             severity_result = 'None'
+             fertilizer_result = 'Optional / Maintenance'
+             rec_qty_msg = "Maintenance Dose (Optional)"
+             advisory_msg = "Plant is healthy. Maintain current care."
+        else:
+             severity_result = 'High' if confidence > 0.9 else 'Moderate'
+             fertilizer_result = rec['fertilizer']
+             rec_qty_msg = f"{required_qty:.2f} kg"
+             advisory_msg = f"Detected {deficiency}. Apply {rec['fertilizer']} evenly."
+
         return jsonify({
             'deficiency': deficiency,
-            'fertilizer': rec['fertilizer'],
-            'severity': 'High' if confidence > 0.9 else 'Moderate',
-            'recommended_quantity': f"{required_qty:.2f} kg",
+            'fertilizer': fertilizer_result,
+            'severity': severity_result,
+            'recommended_quantity': rec_qty_msg,
             'confidence': f"{confidence:.2%}",
-            'advisory': f"Detected {deficiency}. Apply {rec['fertilizer']} evenly." if deficiency != 'Healthy' else "Plant is healthy. Maintain current care."
+            'advisory': advisory_msg
         })
 
     except Exception as e:
