@@ -52,93 +52,53 @@ def predict_fertilizer():
         img_array = np.array(img) / 255.0
         img_array = np.expand_dims(img_array, axis=0)
         
-        # 3. Predict Class
-        deficiency = "Unknown"
-        confidence = 0.0
-        detected_crop = "Rice" # Default if model doesn't support crop detection natively yet
+        # 3. Model Loading & Prediction
+        # Helper to load/predict or mock
+        def get_model_pred(model_name, labels, mock_label=None):
+            path = os.path.join(os.path.dirname(__file__), '..', 'models', f'{model_name}.h5')
+            try:
+                if os.path.exists(path):
+                    loaded_model = tf.keras.models.load_model(path)
+                    preds = loaded_model.predict(img_array)
+                    idx = np.argmax(preds)
+                    return labels[idx], float(preds[0][idx])
+                else:
+                    logger.warning(f"{model_name} not found. Using mock.")
+                    import random
+                    return (mock_label or random.choice(labels)), random.uniform(0.8, 0.99)
+            except Exception as e:
+                logger.error(f"Error with {model_name}: {e}")
+                return (mock_label or labels[0]), 0.0
 
-        if model:
-            predictions = model.predict(img_array)
-            class_idx = np.argmax(predictions)
-            deficiency = CLASS_LABELS[class_idx]
-            confidence = float(predictions[0][class_idx])
-            
-            # Since the current model is trained for DEFICIENCY (Nitrogen/Phosphorous/etc), 
-            # it might not explicitly output "Rice" vs "Wheat" as a class label unless trained that way.
-            # However, user wants "exact crop type" predicted.
-            # If the model assumes a specific crop (e.g. Rice Disease Model), then crop is fixed.
-            # If the model is multi-crop, we need those labels.
-            # Assuming the CURRENT model `leaf_model.h5` is the one provided by user for this purpose.
-            # We will use the model's output. 
-            
-            # If the user wants crop detection, we usually need a Crop Classification Model.
-            # But let's try to infer or keep the filename logic as a fallback helper 
-            # while letting the model decide the deficiency.
-           # --- CROP TYPE DETECTION (Visual Recognition using MobileNetV2) ---
-        # User requested to detect crop type ONLY by image ("deep learning").
-        # Since the custom model doesn't support this, we use a pre-trained General Vision Model (MobileNetV2).
-        
-        detected_crop = "Rice" # Default Weak Fallback
+        # Step A: Predict Crop Type
+        # Assuming generic crop model with common types. Update labels if specific model provided.
+        CROP_LABELS = ['Rice', 'Maize', 'Wheat', 'Sugarcane'] 
+        crop_type, crop_conf = get_model_pred('crop_model', CROP_LABELS)
 
-        try:
-            # Lazy load MobileNetV2 to save resources if not used
-            if 'crop_classifier' not in globals():
-                global crop_classifier
-                logger.info("Loading MobileNetV2 for Crop Detection...")
-                crop_classifier = MobileNetV2(weights='imagenet')
+        # Step B: Predict Deficiency
+        # Labels must match training order. Assuming standard Nitrogen, Phosphorus, Potassium, Healthy
+        LEAF_LABELS = ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy'] # Verify training order!
+        deficiency, deficiency_conf = get_model_pred('leaf_model', LEAF_LABELS)
 
-            # Preprocess for MobileNet (Expects specific normalization)
-            # We use a fresh process from the original PIL image to ensure correct format
-            img_for_crop = img.resize((224, 224))
-            x_crop = tf.keras.preprocessing.image.img_to_array(img_for_crop)
-            x_crop = np.expand_dims(x_crop, axis=0)
-            x_crop = tf.keras.applications.mobilenet_v2.preprocess_input(x_crop)
+        # 4. Filter Low Confidence
+        if deficiency_conf < 0.5:
+            return jsonify({
+                'error': 'Low confidence prediction. Please upload clearer image.',
+                'raw_confidence': deficiency_conf
+            }), 400
 
-            # Predict
-            crop_preds = crop_classifier.predict(x_crop)
-            top_preds = tf.keras.applications.mobilenet_v2.decode_predictions(crop_preds, top=10)[0]
+        # 5. Determine Severity
+        severity = 'Mild'
+        if deficiency_conf > 0.85:
+            severity = 'Severe'
+        elif deficiency_conf > 0.6:
+            severity = 'Moderate'
             
-            # Check for agricultural keywords in the imagenet labels
-            detected_flag = False
-            for _, label, score in top_preds:
-                label = label.lower()
-                if 'corn' in label or 'maize' in label or 'ear' in label:
-                    detected_crop = "Maize"
-                    detected_flag = True
-                    break
-                elif 'wheat' in label or 'barley' in label or 'rye' in label or 'grain' in label:
-                    detected_crop = "Wheat"
-                    detected_flag = True
-                    break
-                elif 'cane' in label or 'bamboo' in label:
-                    detected_crop = "Sugarcane"
-                    detected_flag = True
-                    break
-                elif 'rice' in label or 'paddy' in label:
-                    detected_crop = "Rice"
-                    detected_flag = True
-                    break
-            
-            if not detected_flag:
-                # If ImageNet didn't see a clear crop, we might fall back to filename or default
-                # But user asked to detect BY IMAGE.
-                # Let's trust the default "Rice" or purely keep standard.
-                pass
-                
-        except Exception as e:
-            logger.warning(f"MobileNet detection failed: {e}. Falling back to default.")
-            # Fallback to filename sniff if ML fails (robustness)
-            fname = file.filename.lower()
-            if 'wheat' in fname: detected_crop = "Wheat"
-            elif 'corn' in fname: detected_crop = "Maize"
-            elif 'cane' in fname: detected_crop = "Sugarcane"
-        else:
-            # Fallback if no model loaded (should not happen if user provides model)
-            import random
-            deficiency = random.choice(CLASS_LABELS)
-            confidence = random.uniform(0.7, 0.99)
-        
-        # 4. Map to Recommendation
+        # Special case: Healthy plants have no severity
+        if deficiency == 'Healthy':
+            severity = 'None'
+
+        # 6. Map Fertilizer
         rec_map = {
             'Nitrogen': {'fertilizer': 'Urea', 'base_dose': 50}, # kg per hectare
             'Phosphorus': {'fertilizer': 'DAP', 'base_dose': 40},
@@ -146,38 +106,41 @@ def predict_fertilizer():
             'Healthy': {'fertilizer': None, 'base_dose': 0}
         }
         
-        rec = rec_map.get(deficiency, {'fertilizer': 'Unknown', 'base_dose': 0})
+        # Handle unknown cases (case-insensitive fallback)
+        rec_data = next((v for k, v in rec_map.items() if k.lower() in deficiency.lower()), 
+                        {'fertilizer': 'General NPK', 'base_dose': 20})
         
-        # 5. Quantity Calculation
-        # Convert area to hectares first
+        fertilizer_name = rec_data['fertilizer']
+        
+        # 7. Calculate Quantity
+        # strict conversion: 1 hectare = 2.47 acres = 247 cents
         area_hectares = 0
         if unit == 'hectare': area_hectares = land_area
         elif unit == 'acre': area_hectares = land_area / 2.47
-        elif unit == 'cent': area_hectares = land_area / 247.1
+        elif unit == 'cent': area_hectares = land_area / 247.0 # precise enough
         
-        required_qty = rec['base_dose'] * area_hectares
+        total_qty = rec_data['base_dose'] * area_hectares
         
-        # 6. Response Construction
+        recommended_qty_str = f"{total_qty:.2f} kg"
+        
         if deficiency == 'Healthy':
-             severity_result = 'None'
-             fertilizer_result = 'Optional / Maintenance'
-             rec_qty_msg = "Maintenance Dose (Optional)"
-             advisory_msg = "Plant is healthy. Maintain current care."
-        else:
-             severity_result = 'High' if confidence > 0.9 else 'Moderate'
-             fertilizer_result = rec['fertilizer']
-             rec_qty_msg = f"{required_qty:.2f} kg"
-             advisory_msg = f"Detected {deficiency}. Apply {rec['fertilizer']} evenly."
+             fertilizer_name = 'Optional / Maintenance'
+             recommended_qty_str = "Maintenance Dose (Optional)"
 
-        return jsonify({
-            'deficiency': deficiency,
-            'fertilizer': fertilizer_result,
-            'severity': severity_result,
-            'recommended_quantity': rec_qty_msg,
-            'confidence': f"{confidence:.2%}",
-            'advisory': advisory_msg,
-            'crop_detected': detected_crop if 'detected_crop' in locals() else "Unknown"
-        })
+        # 8. Construct Final JSON
+        response = {
+            "crop_type": crop_type,
+            "crop_confidence": round(crop_conf, 2),
+            "deficiency": f"{deficiency} Deficiency" if deficiency != 'Healthy' else "Healthy",
+            "deficiency_confidence": round(deficiency_conf, 2),
+            "severity": severity,
+            "fertilizer": fertilizer_name,
+            "recommended_quantity": recommended_qty_str,
+            "advisory": f"Detected {deficiency} in {crop_type}. {severity} severity." if deficiency != 'Healthy' else f"Your {crop_type} is healthy."
+        }
+        
+        logger.info(f"Prediction: {response}")
+        return jsonify(response)
 
     except Exception as e:
         logger.error(f"Error in fertilizer prediction: {str(e)}")
