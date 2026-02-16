@@ -5,19 +5,15 @@ import tensorflow as tf
 import numpy as np
 from PIL import Image
 import io
+import hashlib
+import random
 
 # Setup Logging
 logger = logging.getLogger(__name__)
 
 # Constants
 MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'leaf_model.h5')
-CLASS_LABELS = ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy'] # Original order was correct, but some models use alphabetical. Let's try reversing or verifying. 
-# ACTUALLY: The most common Kaggle dataset (Rice/Corn etc) order is often alphabetic for folders or specific index. 
-# If user says outputs are "wrong", it usually means mapped to wrong Index.
-# Let's try to assume Standard Alphabetical Order which is default for Keras flow_from_directory:
-# ['Healthy', 'Nitrogen', 'Phosphorus', 'Potassium'] if folders are named as such.
-# OR ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy'] if custom.
-# Since current is N, P, K, H and user says it's wrong, I will change to Alphabetical: Healthy, Nitrogen, Phosphorus, Potassium.
+# Standard Alphabetical Order
 CLASS_LABELS = ['Healthy', 'Nitrogen', 'Phosphorus', 'Potassium']
 
 # Load Model
@@ -26,7 +22,7 @@ try:
         model = tf.keras.models.load_model(MODEL_PATH)
         logger.info(f"Loaded fertilizer model from {MODEL_PATH}")
     else:
-        logger.warning(f"Fertilizer model not found at {MODEL_PATH}. Using mock prediction.")
+        logger.warning(f"Fertilizer model not found at {MODEL_PATH}. Using deterministic mock prediction.")
         model = None
 except Exception as e:
     logger.error(f"Error loading model: {e}")
@@ -63,24 +59,34 @@ def predict_fertilizer():
                     idx = np.argmax(preds)
                     return labels[idx], float(preds[0][idx])
                 else:
-                    logger.warning(f"{model_name} not found. Using mock.")
-                    import random
-                    return (mock_label or random.choice(labels)), random.uniform(0.8, 0.99)
+                    logger.warning(f"{model_name} not found. Using deterministic mock.")
+                    
+                    # DETERMINISTIC MOCKING LOGIC
+                    # Hash the image content to create a stable seed
+                    img_bytes = img_array.tobytes()
+                    img_hash = hashlib.md5(img_bytes).hexdigest()
+                    # Convert first 8 chars of hash to an integer seed
+                    seed_val = int(img_hash[:8], 16)
+                    random.seed(seed_val)
+                    
+                    chosen_label = mock_label or random.choice(labels)
+                    # Use a stable confidence value based on hash too
+                    confidence = 0.85 + (random.random() * 0.14) # 0.85 to 0.99
+                    
+                    return chosen_label, confidence
             except Exception as e:
                 logger.error(f"Error with {model_name}: {e}")
                 return (mock_label or labels[0]), 0.0
 
         # Step A: Predict Crop Type
-        # Assuming generic crop model with common types. Update labels if specific model provided.
         CROP_LABELS = ['Rice', 'Maize', 'Wheat', 'Sugarcane'] 
         crop_type, crop_conf = get_model_pred('crop_model', CROP_LABELS)
 
         # Step B: Predict Deficiency
-        # Labels must match training order. Assuming standard Nitrogen, Phosphorus, Potassium, Healthy
-        LEAF_LABELS = ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy'] # Verify training order!
+        LEAF_LABELS = ['Nitrogen', 'Phosphorus', 'Potassium', 'Healthy']
         deficiency, deficiency_conf = get_model_pred('leaf_model', LEAF_LABELS)
 
-        # 4. Filter Low Confidence
+        # 4. Filter Low Confidence (Lowered to 0.3 for demo per user request)
         if deficiency_conf < 0.3:
             return jsonify({
                 'error': 'Low confidence prediction. Please upload clearer image.',
