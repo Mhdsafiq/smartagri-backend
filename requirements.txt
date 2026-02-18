@@ -1,7 +1,7 @@
 flask
 flask-cors
 requests
-tensorflow-cpu
+tensorflow
 pandas
 numpy
 pillow
