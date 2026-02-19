@@ -9,8 +9,13 @@ If the image doesn't match any known crop/plant, it returns "Not Detected".
 import logging
 import os
 import numpy as np
-import tensorflow as tf
+import logging
+import os
+import numpy as np
+# Defer heavy imports
+# import tensorflow as tf 
 from PIL import Image
+
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +26,7 @@ def _get_model():
     """Lazy-load MobileNetV2 to avoid slow startup."""
     global _mobilenet_model
     if _mobilenet_model is None:
+        import tensorflow as tf
         logger.info("Loading MobileNetV2 model for crop detection...")
         _mobilenet_model = tf.keras.applications.MobileNetV2(
             weights='imagenet',
@@ -59,6 +65,7 @@ def _get_custom_model():
         labels_path = os.path.join(models_dir, 'crop_indices.json')
         
         if custom_model_path and os.path.exists(custom_model_path) and os.path.exists(labels_path):
+            import tensorflow as tf
             # Load custom model
             logger.info(f"Attempting to load custom model from: {custom_model_path}")
             _custom_model = tf.keras.models.load_model(custom_model_path)
@@ -243,6 +250,7 @@ def detect_crop(pil_image: Image.Image) -> dict:
 
         
         # Preprocess for MobileNetV2 (224x224, specific normalization)
+        import tensorflow as tf
         img_resized = pil_image.resize((224, 224))
         img_array = np.array(img_resized, dtype=np.float32)
         img_array = np.expand_dims(img_array, axis=0)
