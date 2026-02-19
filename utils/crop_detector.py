@@ -29,6 +29,60 @@ def _get_model():
         logger.info("MobileNetV2 loaded successfully.")
     return _mobilenet_model
 
+# Load Custom Model once at module level (singleton)
+_custom_model = None
+_custom_labels = None
+_custom_load_attempted = False
+
+def _get_custom_model():
+    """Lazy-load Custom Model to avoid slow startup."""
+    global _custom_model, _custom_labels, _custom_load_attempted
+    
+    if _custom_load_attempted:
+        return _custom_model, _custom_labels
+
+    _custom_load_attempted = True
+    
+    try:
+        base_path = os.path.dirname(__file__)
+        models_dir = os.path.join(base_path, '..', 'models')
+        
+        custom_model_path_keras = os.path.join(models_dir, 'crop_model.keras')
+        custom_model_path_h5 = os.path.join(models_dir, 'crop_model.h5')
+        
+        custom_model_path = None
+        if os.path.exists(custom_model_path_keras):
+            custom_model_path = custom_model_path_keras
+        elif os.path.exists(custom_model_path_h5):
+            custom_model_path = custom_model_path_h5
+            
+        labels_path = os.path.join(models_dir, 'crop_indices.json')
+        
+        if custom_model_path and os.path.exists(custom_model_path) and os.path.exists(labels_path):
+            # Load custom model
+            logger.info(f"Attempting to load custom model from: {custom_model_path}")
+            _custom_model = tf.keras.models.load_model(custom_model_path)
+            print("🔥 CUSTOM MODEL LOADED:", custom_model_path)
+
+            logger.info("✅ SUCCESS: Custom crop model loaded!")
+            
+            # Load labels
+            import json
+            with open(labels_path, 'r') as f:
+                _custom_labels = json.load(f) # {0: 'Rice', 1: 'Wheat'}
+            logger.info(f"✅ SUCCESS: Custom labels loaded: {list(_custom_labels.values())}")
+        else:
+            logger.warning(f"Custom model files not found. Checked: {custom_model_path_keras}, {custom_model_path_h5}")
+            
+    except Exception as e:
+        logger.error(f"❌ FAILED to load custom model: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        _custom_model = None
+        _custom_labels = None
+
+    return _custom_model, _custom_labels
+
 
 # ─── ImageNet Class → Crop Name Mapping ───────────────────────────────────────
 # ImageNet has ~1000 classes. Many are plants, fruits, vegetables.
@@ -122,36 +176,10 @@ def detect_crop(pil_image: Image.Image) -> dict:
     """
     try:
         # ─── STRATEGY A: CUSTOM TRAINED MODEL ───
-        # ─── STRATEGY A: CUSTOM TRAINED MODEL ───
-        # Check for .keras first (newer format), then .h5
-        base_path = os.path.dirname(__file__)
-        models_dir = os.path.join(base_path, '..', 'models')
+        custom_model, label_map = _get_custom_model()
         
-        custom_model_path_keras = os.path.join(models_dir, 'crop_model.keras')
-        custom_model_path_h5 = os.path.join(models_dir, 'crop_model.h5')
-        
-        custom_model_path = None
-        if os.path.exists(custom_model_path_keras):
-            custom_model_path = custom_model_path_keras
-        elif os.path.exists(custom_model_path_h5):
-            custom_model_path = custom_model_path_h5
-        labels_path = os.path.join(models_dir, 'crop_indices.json')
-        
-        if custom_model_path and os.path.exists(custom_model_path) and os.path.exists(labels_path):
+        if custom_model and label_map:
             try:
-                # Load custom model
-                logger.info(f"Attempting to load custom model from: {custom_model_path}")
-                custom_model = tf.keras.models.load_model(custom_model_path)
-                print("🔥 CUSTOM MODEL LOADED:", custom_model_path)
-
-                logger.info("✅ SUCCESS: Custom crop model loaded!")
-                
-                # Load labels
-                import json
-                with open(labels_path, 'r') as f:
-                    label_map = json.load(f) # {0: 'Rice', 1: 'Wheat'}
-                logger.info(f"✅ SUCCESS: Custom labels loaded: {list(label_map.values())}")
-                
                 # Preprocess (MATCHING YOUR TRAINING: rescale=1./255)
                 # Ensure we resize exactly as you did in training (224x224)
                 img_resized = pil_image.resize((224, 224))
@@ -209,11 +237,10 @@ def detect_crop(pil_image: Image.Image) -> dict:
                 import traceback
                 logger.error(traceback.format_exc())
                 # Fallback to generic...
-        else:
-            logger.warning(f"Custom model files not found. Checked: {custom_model_path_keras}, {custom_model_path_h5}")
         
         # ─── STRATEGY B: GENERIC MOBILENET V2 ───
         model = _get_model()
+
         
         # Preprocess for MobileNetV2 (224x224, specific normalization)
         img_resized = pil_image.resize((224, 224))

@@ -14,22 +14,11 @@ from utils.crop_detector import detect_crop
 # Setup Logging
 logger = logging.getLogger(__name__)
 
-# Constants
-MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'leaf_model.h5')
-# Standard Alphabetical Order
-CLASS_LABELS = ['Healthy', 'Nitrogen', 'Phosphorus', 'Potassium']
 
-# Load Leaf Deficiency Model
-try:
-    if os.path.exists(MODEL_PATH):
-        leaf_model = tf.keras.models.load_model(MODEL_PATH)
-        logger.info(f"Loaded leaf deficiency model from {MODEL_PATH}")
-    else:
-        logger.warning(f"Leaf model not found at {MODEL_PATH}. Using deterministic mock prediction.")
-        leaf_model = None
-except Exception as e:
-    logger.error(f"Error loading leaf model: {e}")
-    leaf_model = None
+# Constants
+leaf_model = None
+
+
 
 # Blueprint
 fertilizer_bp = Blueprint('fertilizer', __name__)
